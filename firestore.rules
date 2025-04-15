@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to get user role
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is buyer
+    function isBuyer() {
+      return isAuthenticated() && getUserRole() == 'buyer';
+    }
+    
+    // Helper function to check if user is seller
+    function isSeller() {
+      return isAuthenticated() && getUserRole() == 'seller';
+    }
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+    
+    // Allow public read access to rooms collection
+    match /rooms/{roomId} {
+      allow read: if true; // Public read access
+      allow create: if isSeller(); // Only sellers can create rooms
+      allow update, delete: if isSeller() && request.auth.uid == resource.data.sellerId; // Only room owner can update/delete
+    }
+    
+    // Allow authenticated users to create documents in the users collection
+    match /users/{userId} {
+      allow create: if isAuthenticated(); // Allow authenticated users to create
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || // Users can read their own documents
+        isSeller() // Sellers can read user documents
+      );
+      allow update, delete: if isAuthenticated() && request.auth.uid == userId; // Users can update/delete their own documents
+    }
+    
+    // Favorites collection rules
+    match /favorites/{favoriteId} {
+      allow create: if isBuyer(); // Only buyers can create favorites
+      allow read: if isAuthenticated(); // Allow authenticated users to read favorites
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId; // Users can only delete their own favorites
+    }
+    
+    // Bookings collection rules
+    match /bookings/{bookingId} {
+      // For new bookings
+      allow create: if isBuyer() && 
+        request.resource.data.userId == request.auth.uid && 
+        request.resource.data.status == 'pending';
+      
+      // For existing bookings
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.userId || 
+        request.auth.uid == resource.data.sellerId ||
+        isSeller() && request.auth.uid == resource.data.sellerId
+      );
+      
+      // Allow sellers to query their bookings
+      allow list: if isSeller() && (
+        request.query.filters[0].op == '==' && 
+        request.query.filters[0].path == 'sellerId' && 
+        request.query.filters[0].value == request.auth.uid
+      );
+      
+      // Allow sellers to update booking status
+      allow update: if isSeller() && 
+        request.auth.uid == resource.data.sellerId && 
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        );
+      
+      allow delete: if isBuyer() && 
+        request.auth.uid == resource.data.userId;
+    }
+    
+    // Default deny all other access
+    match /{document=**} {
+      allow read, write: if false; // Deny all other access
+    }
+  }
+} 
