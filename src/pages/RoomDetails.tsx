@@ -182,6 +182,28 @@ const RoomDetails = () => {
         return;
       }
 
+      // Prevent double-booking: check for overlapping bookings
+      const overlappingQuery = query(
+        collection(db, 'bookings'),
+        where('roomId', '==', id),
+        where('status', 'in', ['pending', 'approved'])
+      );
+      const snapshot = await getDocs(overlappingQuery);
+      let overlap = false;
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        const existingStart = new Date(data.startDate);
+        const existingEnd = new Date(data.endDate);
+        // Check for overlap
+        if ((startDateObj <= existingEnd) && (endDateObj >= existingStart)) {
+          overlap = true;
+        }
+      });
+      if (overlap) {
+        alert('This room is already booked for the selected dates.');
+        return;
+      }
+
       // Format dates to ISO string before saving
       const formattedStartDate = startDateObj.toISOString();
       const formattedEndDate = endDateObj.toISOString();
@@ -222,6 +244,7 @@ const RoomDetails = () => {
       await deleteDoc(doc(db, 'bookings', currentBooking.id));
       setIsBooked(false);
       setCurrentBooking(null);
+      await checkBookingStatus();
       navigate('/user');
     } catch (error) {
       console.error('Error canceling booking:', error);
