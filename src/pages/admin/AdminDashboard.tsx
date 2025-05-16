@@ -3,6 +3,12 @@ import { Container, Typography, Grid, Paper, Table, TableBody, TableCell, TableC
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { getAuth, onAuthStateChanged } from 'firebase/auth'; // NEW
+import { doc, getDoc } from 'firebase/firestore'; // ALREADY used, but ensure it's here
+// import { useNavigate } from 'react-router-dom'; // NEW
+
+// Inside component (line ~20)
+// const navigate = useNavigate();
 
 interface User {
   id: string;
@@ -24,11 +30,47 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null); // NEW
+
 
   useEffect(() => {
-    fetchData();
+    const fetchCurrentUserRole = async (uid: string) => {
+      try {
+        const userDocRef = doc(db, 'users', uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          const userData = userDoc.data() as User;
+          setCurrentUserRole(userData.role);
+  
+          if (userData.role !== 'admin') {
+            alert('Access Denied: Admins only.');
+            window.history.back();
+          } else {
+            fetchData(); // Only fetch data if admin
+          }
+        } else {
+          alert('Access Denied: Admins only.');
+          window.history.back();
+        }
+      } catch (error) {
+        console.error('Error fetching current user role:', error);
+        alert('Access Denied: Admins only.');
+        window.history.back();
+      }
+    };
+  
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        fetchCurrentUserRole(user.uid);
+      } else {
+        // navigate('/login');
+      }
+    });
+  
+    return () => unsubscribe();
   }, []);
-
+  
   const fetchData = async () => {
     try {
       // Fetch users
@@ -50,6 +92,7 @@ const AdminDashboard = () => {
       setUsers(usersData);
       setRooms(roomsData);
       setLoading(false);
+
     } catch (error) {
       console.error('Error fetching data:', error);
       setLoading(false);
@@ -200,4 +243,4 @@ const AdminDashboard = () => {
   );
 };
 
-export default AdminDashboard; 
+export default AdminDashboard;
